@@ -171,9 +171,9 @@
                     class="text-blue-500 hover:text-blue-700 text-sm" title="Ver informe">
                     <i :class="textosExpandidos.has(a.id) ? 'fas fa-chevron-up' : 'fas fa-eye'"></i>
                   </button>
-                  <a v-else :href="urlArchivo(a)" target="_blank" class="text-blue-500 hover:text-blue-700 text-sm" title="Ver / descargar">
+                  <button v-else @click="abrirArchivo(a)" class="text-blue-500 hover:text-blue-700 text-sm" title="Ver / descargar">
                     <i class="fas fa-external-link-alt"></i>
-                  </a>
+                  </button>
                   <button @click="editarArchivo(a)" class="text-gray-400 hover:text-gray-600 text-sm" title="Editar descripción">
                     <i class="fas fa-tag"></i>
                   </button>
@@ -820,6 +820,36 @@ async function exportarPDF() {
   seccion('TRATAMIENTO', c.tratamiento)
   if (c.proxima_consulta) seccion('PRÓXIMA CONSULTA', new Date(c.proxima_consulta).toLocaleDateString('es-AR'))
 
+  // Estudios y archivos adjuntos (informes de texto)
+  const informesTexto = archivos.value.filter(a => a.tipo_mime === 'text/plain' && a.contenido)
+  if (informesTexto.length > 0) {
+    if (y > 240) { doc.addPage(); y = 15 }
+    doc.setTextColor(...azul)
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'bold')
+    doc.text('ESTUDIOS Y ARCHIVOS ADJUNTOS', 14, y)
+    y += 5
+    for (const archivo of informesTexto) {
+      if (y > 260) { doc.addPage(); y = 15 }
+      doc.setTextColor(...azul)
+      doc.setFontSize(8)
+      doc.setFont('helvetica', 'bold')
+      const label = archivo.descripcion || archivo.nombre_original
+      doc.text(`• ${label} (${archivo.categoria})`, 14, y)
+      y += 4
+      doc.setTextColor(30, 30, 30)
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(7.5)
+      const lines = doc.splitTextToSize(archivo.contenido, ancho - 28)
+      for (const line of lines) {
+        if (y > 275) { doc.addPage(); y = 15 }
+        doc.text(line, 14, y)
+        y += 3.8
+      }
+      y += 3
+    }
+  }
+
   // Respuesta IA
   if (respuestaIA.value?.texto) {
     if (y > 200) { doc.addPage(); y = 15 }
@@ -911,7 +941,25 @@ function esImagen(a) {
   return a.tipo_mime?.startsWith('image/')
 }
 function urlArchivo(a) {
-  return `/api/archivos/ver/${a.nombre_archivo}`
+  const base = axios.defaults.baseURL || ''
+  return `${base}/api/archivos/ver/${a.nombre_archivo}`
+}
+
+async function abrirArchivo(a) {
+  try {
+    const response = await axios.get(`/api/archivos/ver/${a.nombre_archivo}`, { responseType: 'blob' })
+    const url = URL.createObjectURL(response.data)
+    const link = document.createElement('a')
+    link.href = url
+    link.target = '_blank'
+    link.rel = 'noopener'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    setTimeout(() => URL.revokeObjectURL(url), 10000)
+  } catch {
+    toast.error('No se pudo cargar el archivo')
+  }
 }
 function iconoArchivo(a) {
   if (a.tipo_mime === 'application/pdf') return 'fas fa-file-pdf text-red-500'
@@ -1035,12 +1083,21 @@ function cerrarUpload() {
   modalTab.value = 'archivo'
 }
 
-function toggleTexto(a) {
+async function toggleTexto(a) {
   const map = new Map(textosExpandidos.value)
   if (map.has(a.id)) {
     map.delete(a.id)
   } else {
-    map.set(a.id, a.contenido || '[Sin contenido]')
+    if (a.contenido != null) {
+      map.set(a.id, a.contenido)
+    } else {
+      try {
+        const { data } = await axios.get(`/api/archivos/ver/${a.nombre_archivo}`, { responseType: 'text' })
+        map.set(a.id, data || '[Sin contenido]')
+      } catch {
+        map.set(a.id, '[Contenido no disponible]')
+      }
+    }
   }
   textosExpandidos.value = map
 }
