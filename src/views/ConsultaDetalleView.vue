@@ -1035,18 +1035,12 @@ function cerrarUpload() {
   modalTab.value = 'archivo'
 }
 
-async function toggleTexto(a) {
+function toggleTexto(a) {
   const map = new Map(textosExpandidos.value)
   if (map.has(a.id)) {
     map.delete(a.id)
   } else {
-    try {
-      const resp = await fetch(urlArchivo(a))
-      const texto = await resp.text()
-      map.set(a.id, texto)
-    } catch {
-      map.set(a.id, '[Error al cargar el informe]')
-    }
+    map.set(a.id, a.contenido || '[Sin contenido]')
   }
   textosExpandidos.value = map
 }
@@ -1056,14 +1050,10 @@ async function guardarInformeTexto() {
   subiendo.value = true
   errorUpload.value = ''
   try {
-    const blob = new Blob([textoContenido.value], { type: 'text/plain' })
-    const file = new File([blob], `${textoTitulo.value}.txt`, { type: 'text/plain' })
-    const fd = new FormData()
-    fd.append('archivos', file)
-    fd.append('categoria', textoCategoria.value)
-    fd.append('descripcion', textoTitulo.value)
-    await axios.post(`/api/archivos/consulta/${consulta.value.id}`, fd, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+    await axios.post(`/api/archivos/consulta/${consulta.value.id}/texto`, {
+      titulo:    textoTitulo.value,
+      categoria: textoCategoria.value,
+      contenido: textoContenido.value,
     })
     toast.success('Informe guardado')
     cerrarUpload()
