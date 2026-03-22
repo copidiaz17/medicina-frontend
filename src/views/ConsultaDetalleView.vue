@@ -262,7 +262,7 @@
           </div>
           <div>
             <p class="font-semibold text-gray-800">Analizando con Claude...</p>
-            <p class="text-sm text-gray-500">El especialista IA está revisando todos los datos del paciente</p>
+            <p class="text-sm text-gray-500">{{ mensajeCarga || 'El especialista IA está revisando todos los datos del paciente' }}</p>
           </div>
         </div>
       </div>
@@ -676,6 +676,7 @@ const toast = useToast()
 
 const cargando        = ref(true)
 const cargandoClaude  = ref(false)
+const mensajeCarga    = ref('')
 const consulta        = ref(null)
 const respuestaIA     = ref(null)
 const errorClaude     = ref('')
@@ -1165,14 +1166,26 @@ async function enviarPregunta() {
 async function consultarClaude() {
   cargandoClaude.value = true
   errorClaude.value = ''
+  mensajeCarga.value = 'El especialista IA está revisando todos los datos del paciente'
+
+  // Si tarda más de 15s avisar que el servidor puede estar iniciando
+  const timerAviso = setTimeout(() => {
+    if (cargandoClaude.value) {
+      mensajeCarga.value = 'El servidor está iniciando, esto puede tardar hasta 60 segundos la primera vez...'
+    }
+  }, 15000)
+
   try {
-    const { data } = await axios.post(`/api/claude/consultar/${consulta.value.id}`, { especialidad: especialidad.value })
+    const { data } = await axios.post(
+      `/api/claude/consultar/${consulta.value.id}`,
+      { especialidad: especialidad.value },
+      { timeout: 120000 }
+    )
     respuestaIA.value = { texto: data.respuesta, tokens: data.tokens, especialidadLabel: especialidadLabel.value }
     const msg = data.archivos_analizados > 0
       ? `Análisis generado (${data.archivos_analizados} archivo(s) analizados por visión IA)`
       : 'Análisis de IA generado'
     toast.success(msg)
-    // Actualizar contador de uso
     try {
       const { data: uso } = await axios.get('/api/claude/uso-mes')
       usoIA.value = uso
@@ -1181,11 +1194,15 @@ async function consultarClaude() {
     if (err.response?.data?.es_demo) {
       modalDemo.value = true
     } else {
-      const msg = err.response?.data?.error || 'Error al consultar IA'
+      const msg = err.code === 'ECONNABORTED'
+        ? 'La consulta tardó demasiado. El servidor estaba iniciando — por favor reintentá ahora, ya debería estar listo.'
+        : err.response?.data?.error || 'Error al consultar IA. Por favor reintentá.'
       errorClaude.value = msg
       toast.error(msg)
     }
   } finally {
+    clearTimeout(timerAviso)
+    mensajeCarga.value = ''
     cargandoClaude.value = false
   }
 }
