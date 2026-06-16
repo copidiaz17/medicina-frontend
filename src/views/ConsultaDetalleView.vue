@@ -174,6 +174,15 @@
                   <button v-else @click="abrirArchivo(a)" class="text-blue-500 hover:text-blue-700 text-sm" title="Ver / descargar">
                     <i class="fas fa-external-link-alt"></i>
                   </button>
+                  <!-- Botón analizar con IA (solo imágenes médicas) -->
+                  <button v-if="esAnalizable(a)"
+                    @click="analizarImagen(a)"
+                    :disabled="analizandoIds.has(a.id)"
+                    :title="a.analisis ? 'Re-analizar con IA' : 'Analizar imagen con IA'"
+                    class="text-violet-500 hover:text-violet-700 text-sm disabled:opacity-50 disabled:cursor-wait">
+                    <i v-if="analizandoIds.has(a.id)" class="fas fa-spinner fa-spin"></i>
+                    <i v-else class="fas fa-microscope"></i>
+                  </button>
                   <button @click="editarArchivo(a)" class="text-gray-400 hover:text-gray-600 text-sm" title="Editar descripción">
                     <i class="fas fa-tag"></i>
                   </button>
@@ -187,6 +196,25 @@
               <div v-if="a.tipo_mime === 'text/plain' && textosExpandidos.has(a.id)"
                 class="px-3 pb-3">
                 <pre class="text-xs text-gray-700 whitespace-pre-wrap font-sans p-3 bg-gray-50 border border-gray-200 rounded-lg">{{ textosExpandidos.get(a.id) }}</pre>
+              </div>
+
+              <!-- Panel de análisis IA de imagen -->
+              <div v-if="a.analisis" class="mx-3 mb-3 p-3 bg-violet-50 border border-violet-100 rounded-xl">
+                <div class="flex items-center gap-2 mb-2">
+                  <i class="fas fa-microscope text-violet-500 text-sm"></i>
+                  <span class="text-xs font-semibold text-violet-700">Análisis IA de imagen</span>
+                  <span class="text-xs text-gray-400">{{ formatFecha(a.analisis.createdAt) }}</span>
+                </div>
+                <div
+                  class="prose prose-sm max-w-none prose-p:text-gray-700 prose-strong:text-gray-800 prose-headings:text-violet-800 text-xs"
+                  v-html="renderMarkdown(a.analisis.hallazgos)"
+                ></div>
+              </div>
+
+              <!-- Indicador mientras se analiza -->
+              <div v-if="analizandoIds.has(a.id)" class="mx-3 mb-3 p-3 bg-violet-50 border border-violet-100 rounded-xl flex items-center gap-3">
+                <i class="fas fa-spinner fa-spin text-violet-500"></i>
+                <span class="text-xs text-violet-700">Analizando imagen con IA... puede tardar unos segundos</span>
               </div>
             </div>
 
@@ -707,6 +735,33 @@ const textoCategoria       = ref('otro')
 const textoTitulo          = ref('')
 const textoContenido       = ref('')
 const textosExpandidos     = ref(new Map())
+
+// Análisis de imágenes IA
+const analizandoIds = ref(new Set())
+
+function esAnalizable(a) {
+  const mimeOk = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(a.tipo_mime)
+  const catOk  = ['radiologia', 'ecografia', 'resonancia', 'tomografia'].includes(a.categoria)
+  return mimeOk && catOk
+}
+
+async function analizarImagen(a) {
+  const ids = new Set(analizandoIds.value)
+  ids.add(a.id)
+  analizandoIds.value = ids
+  try {
+    const { data } = await axios.post(`/api/archivos/${a.id}/analizar`, {}, { timeout: 120000 })
+    const idx = archivos.value.findIndex(x => x.id === a.id)
+    if (idx !== -1) archivos.value[idx] = { ...archivos.value[idx], analisis: data }
+    toast.success('Análisis de imagen generado')
+  } catch (err) {
+    toast.error(err.response?.data?.error || 'Error al analizar imagen')
+  } finally {
+    const ids2 = new Set(analizandoIds.value)
+    ids2.delete(a.id)
+    analizandoIds.value = ids2
+  }
+}
 
 // Chat follow-up
 const chatPregunta  = ref('')
